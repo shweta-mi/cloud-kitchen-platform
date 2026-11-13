@@ -1,5 +1,10 @@
 import express from 'express'
-import { randomInt } from 'node:crypto'
+import session from 'express-session'
+import bcrypt from 'bcryptjs'
+import helmet from 'helmet'
+import { rateLimit } from 'express-rate-limit'
+import 'dotenv/config'
+import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -7,6 +12,10 @@ import { fileURLToPath } from 'node:url'
 import { INITIAL_MOCK_ORDERS } from '../src/customer/data/mockOrders.js'
 import { MENU_ITEMS } from '../src/customer/data/menuData.js'
 import { INITIAL_INVENTORY } from '../src/kitchen/services/inventoryService.js'
+
+if (process.env.NODE_ENV === 'production' && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || !process.env.KITCHEN_PASSWORD_HASH)) {
+  throw new Error('Production requires SESSION_SECRET (32+ characters) and KITCHEN_PASSWORD_HASH.')
+}
 
 const here = dirname(fileURLToPath(import.meta.url))
 const dbPath = resolve(process.env.RASOI_DB_PATH || resolve(here, 'data/rasoi.sqlite'))
@@ -19,10 +28,11 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS menu_items (id TEXT PRIMARY KEY, data TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS inventory_items (id TEXT PRIMARY KEY, data TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS sessions (sid TEXT PRIMARY KEY, data TEXT NOT NULL, expires INTEGER NOT NULL);
 `)
 
 const count = (table) => db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count
-if (!count('orders')) {
+if (!count('orders') && process.env.NODE_ENV !== 'production') {
   const insert = db.prepare('INSERT INTO orders (id, data) VALUES (?, ?)')
   for (const order of INITIAL_MOCK_ORDERS) insert.run(order.id, JSON.stringify(order))
 }
@@ -50,21 +60,96 @@ const writeEntity = (table, value) => {
 const clients = new Set()
 function publish(resource, data) {
   const message = `event: ${resource}\ndata: ${JSON.stringify(data)}\n\n`
-  for (const response of clients) response.write(message)
+  for (const client of clients) if (client.resource === resource) client.response.write(message)
 }
-function publishOrders() { publish('orders', rows('orders')) }
+function publicOrder(order) {
+  const { id, items, total, status, createdAt, updatedAt } = order
+  return { id, items, total, status, createdAt, updatedAt }
+}
+function publishOrders() {
+  const orders = rows('orders')
+  publish('orders', orders)
+  for (const order of orders) {
+    const message = `event: orderStatus\ndata: ${JSON.stringify({ id: order.id, status: order.status, updatedAt: order.updatedAt })}\n\n`
+    for (const client of clients) if (client.resource === 'orderStatus' && client.orderId === order.id) client.response.write(message)
+  }
+}
 function publishMenu() { publish('menu', rows('menu_items')) }
 function publishInventory() { publish('inventory', rows('inventory_items')) }
 function publishKitchenStatus() { publish('kitchenStatus', db.prepare("SELECT value FROM settings WHERE key = 'kitchenStatus'").get().value) }
 
 const app = express()
-app.use(express.json({ limit: '1mb' }))
+if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1)
+app.disable('x-powered-by')
+app.use(helmet({
+  contentSecurityPolicy: { directives: {
+    defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+    fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'], imgSrc: ["'self'", 'data:', 'https://images.unsplash.com', 'https://plus.unsplash.com'],
+    connectSrc: ["'self'"], objectSrc: ["'none'"], baseUri: ["'self'"], frameAncestors: ["'none'"],
+  } },
+  crossOriginEmbedderPolicy: false,
+}))
+app.use(express.json({ limit: '100kb' }))
+class SQLiteSessionStore extends session.Store {
+  get(sid, callback) {
+    try {
+      const row = db.prepare('SELECT data, expires FROM sessions WHERE sid = ?').get(sid)
+      if (!row || row.expires <= Date.now()) { db.prepare('DELETE FROM sessions WHERE sid = ?').run(sid); return callback(null, null) }
+      callback(null, JSON.parse(row.data))
+    } catch (error) { callback(error) }
+  }
+  set(sid, value, callback = () => {}) {
+    try {
+      const expires = value.cookie?.expires ? new Date(value.cookie.expires).getTime() : Date.now() + 8 * 60 * 60 * 1000
+      db.prepare('INSERT INTO sessions (sid, data, expires) VALUES (?, ?, ?) ON CONFLICT(sid) DO UPDATE SET data=excluded.data, expires=excluded.expires').run(sid, JSON.stringify(value), expires)
+      callback()
+    } catch (error) { callback(error) }
+  }
+  destroy(sid, callback = () => {}) { try { db.prepare('DELETE FROM sessions WHERE sid = ?').run(sid); callback() } catch (error) { callback(error) } }
+  touch(sid, value, callback = () => {}) { this.set(sid, value, callback) }
+}
+db.prepare('DELETE FROM sessions WHERE expires <= ?').run(Date.now())
+app.use(session({
+  name: 'rasoi.staff.sid', secret: process.env.SESSION_SECRET || (process.env.NODE_ENV === 'production' ? randomBytes(48).toString('hex') : 'local-development-session-secret-change-me'),
+  store: new SQLiteSessionStore(), resave: false, saveUninitialized: false,
+  cookie: { httpOnly: true, sameSite: 'strict', secure: process.env.NODE_ENV === 'production', maxAge: 8 * 60 * 60 * 1000, path: '/' },
+}))
 app.use((req, res, next) => {
   res.setHeader('Cache-Control', 'no-store')
   next()
 })
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, database: 'sqlite' }))
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false })
+const orderLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false })
+const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draft-8', legacyHeaders: false })
+app.use('/api', apiLimiter)
+const createCsrf = (req) => { req.session.csrfToken ||= randomBytes(32).toString('hex'); return req.session.csrfToken }
+const sameSecret = (a, b) => typeof a === 'string' && typeof b === 'string' && a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b))
+const requireCsrf = (req, res, next) => sameSecret(req.get('X-CSRF-Token'), req.session.csrfToken) ? next() : res.status(403).json({ error: 'Your session expired. Refresh and try again.' })
+const requireStaff = (req, res, next) => req.session.staff === true ? next() : res.status(401).json({ error: 'Kitchen staff sign-in required.' })
+app.get('/api/auth/session', (req, res) => res.json({ authenticated: req.session.staff === true, csrfToken: createCsrf(req) }))
+app.post('/api/auth/login', loginLimiter, requireCsrf, async (req, res) => {
+  const hash = process.env.KITCHEN_PASSWORD_HASH
+  if (!hash || !process.env.SESSION_SECRET && process.env.NODE_ENV === 'production') return res.status(503).json({ error: 'Kitchen sign-in is not configured.' })
+  try {
+    if (typeof req.body?.password !== 'string' || !await bcrypt.compare(req.body.password, hash)) return res.status(401).json({ error: 'Invalid kitchen password.' })
+    await new Promise((resolveSession, rejectSession) => req.session.regenerate((error) => error ? rejectSession(error) : resolveSession()))
+    req.session.staff = true
+    createCsrf(req)
+    res.json({ authenticated: true, csrfToken: req.session.csrfToken })
+  } catch (error) { res.status(500).json({ error: 'Could not start staff session.' }) }
+})
+app.post('/api/auth/logout', requireStaff, requireCsrf, (req, res) => req.session.destroy(() => { res.clearCookie('rasoi.staff.sid', { path: '/', sameSite: 'strict', secure: process.env.NODE_ENV === 'production' }); res.status(204).end() }))
+app.use('/api', (req, res, next) => {
+  if (req.method === 'POST' && req.path === '/orders' || req.method === 'GET' && /^\/orders\/[^/]+$/.test(req.path) || /^\/orders\/[^/]+\/events$/.test(req.path)) return next()
+  const staffOnly = req.path === '/events' && !['kitchenStatus', 'menu'].includes(req.query.resource) || /^\/(bootstrap|orders)(\/|$)/.test(req.path) || /^\/(menu|inventory)(\/|$)/.test(req.path) && req.method !== 'GET' || req.path === '/kitchen/status' && req.method === 'PUT'
+  if (!staffOnly) return next()
+  requireStaff(req, res, () => {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next()
+    requireCsrf(req, res, next)
+  })
+})
 app.get('/api/events', (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -72,9 +157,19 @@ app.get('/api/events', (req, res) => {
     Connection: 'keep-alive',
   })
   res.write('retry: 3000\n\n')
-  clients.add(res)
+  const client = { response: res, resource: req.query.resource || 'orders' }
+  clients.add(client)
   const heartbeat = setInterval(() => res.write(': keep-alive\n\n'), 20_000)
-  req.on('close', () => { clearInterval(heartbeat); clients.delete(res) })
+  req.on('close', () => { clearInterval(heartbeat); clients.delete(client) })
+})
+app.get('/api/orders/:id/events', (req, res) => {
+  if (!getOrder(req.params.id)) return res.status(404).end()
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive' })
+  res.write('retry: 3000\n\n')
+  const client = { response: res, resource: 'orderStatus', orderId: req.params.id.toLowerCase() }
+  clients.add(client)
+  const heartbeat = setInterval(() => res.write(': keep-alive\n\n'), 20_000)
+  req.on('close', () => { clearInterval(heartbeat); clients.delete(client) })
 })
 
 app.get('/api/bootstrap', (_req, res) => res.json({
@@ -85,12 +180,12 @@ app.get('/api/bootstrap', (_req, res) => res.json({
 }))
 
 app.get('/api/orders', (_req, res) => res.json(rows('orders').sort((a, b) => b.createdAt.localeCompare(a.createdAt))))
-app.get('/api/orders/:id', (req, res) => {
+app.get('/api/orders/:id', orderLimiter, (req, res) => {
   const order = getOrder(req.params.id)
   if (!order) return res.status(404).json({ error: 'Order not found' })
-  res.json(order)
+  res.json(publicOrder(order))
 })
-app.post('/api/orders', (req, res) => {
+app.post('/api/orders', orderLimiter, (req, res) => {
   const { items, customer } = req.body || {}
   if (!Array.isArray(items) || !items.length || items.length > 50) return res.status(400).json({ error: 'Add at least one menu item.' })
   if (items.some((item) => !item.name || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1 || Number(item.quantity) > 99 || !Number.isFinite(Number(item.price)) || Number(item.price) < 0)) {
@@ -110,7 +205,7 @@ app.post('/api/orders', (req, res) => {
   const deliveryFee = subtotal >= 300 ? 0 : 30
   const total = subtotal ? subtotal + deliveryFee + Math.round(subtotal * 0.05) : 0
   let id
-  do { id = `order-${randomInt(1000, 10000)}` } while (getOrder(id))
+  do { id = `order-${randomBytes(12).toString('hex')}` } while (getOrder(id))
   const now = new Date().toISOString()
   const order = {
     id,
@@ -215,5 +310,5 @@ if (existsSync(dist)) {
 }
 
 const port = Number(process.env.PORT || 3001)
-const host = process.env.HOST || '0.0.0.0'
+const host = process.env.HOST || '127.0.0.1'
 app.listen(port, host, () => console.log(`Rasoi API ready at http://${host}:${port} (SQLite: ${dbPath})`))

@@ -17,6 +17,8 @@ import OrderQueueTab from './components/OrderQueueTab'
 import MenuManagementTab from './components/MenuManagementTab'
 import InventoryTab from './components/InventoryTab'
 import ConfirmationModal from './components/ConfirmationModal'
+import KitchenLogin from './components/KitchenLogin'
+import { authService } from './services/authService'
 
 import { orderService } from '../customer/services/orderService'
 import { menuService } from '../customer/services/menuService'
@@ -25,7 +27,7 @@ import { inventoryService } from './services/inventoryService'
 import { ORDER_STATUS } from '../customer/constants/orderStatus'
 import { KITCHEN_STATUS } from './constants/kitchenStatus'
 
-export default function KitchenDashboard({ onSwitchToCustomer }) {
+function KitchenDashboardContent({ onSwitchToCustomer, onLogout }) {
   const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'orders' | 'menu' | 'inventory'
 
   // Live state
@@ -187,6 +189,7 @@ export default function KitchenDashboard({ onSwitchToCustomer }) {
         activeCount={activeOrdersCount}
         newOrdersCount={newOrdersCount}
         onSwitchToCustomer={onSwitchToCustomer}
+        onLogout={onLogout}
       />
 
       {/* Floating Action Toast Notification */}
@@ -367,4 +370,28 @@ export default function KitchenDashboard({ onSwitchToCustomer }) {
       />
     </div>
   )
+}
+
+export default function KitchenDashboard({ onSwitchToCustomer }) {
+  const [authState, setAuthState] = useState('loading')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    authService.getSession()
+      .then(({ authenticated }) => setAuthState(authenticated ? 'authenticated' : 'anonymous'))
+      .catch((err) => { setError(err.message); setAuthState('anonymous') })
+  }, [])
+
+  const login = async (password) => {
+    await authService.login(password)
+    setAuthState('authenticated')
+  }
+  const logout = async () => {
+    await authService.logout()
+    setAuthState('anonymous')
+  }
+
+  if (authState === 'loading') return <main className="min-h-[70vh] grid place-items-center text-stone-600">Checking staff session…</main>
+  if (authState !== 'authenticated') return <><KitchenLogin onLogin={login} />{error && <p className="pb-6 text-center text-sm text-rose-700">{error}</p>}</>
+  return <KitchenDashboardContent onSwitchToCustomer={onSwitchToCustomer} onLogout={logout} />
 }

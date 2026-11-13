@@ -14,7 +14,7 @@ A full, responsive cloud kitchen web application platform for **Rasoi Kitchen** 
 - **Backend**: Node.js 22.5+ with Express 5, SQLite (`node:sqlite`), REST endpoints, and server-sent events (SSE).
 - **Shared Data & Contract**:
   - `server/index.js`: REST API and SQLite persistence for orders, menu, kitchen status, and inventory.
-  - `src/shared/api.js`: Browser API client and SSE subscriptions. Updates are broadcast to every connected browser.
+  - `src/shared/api.js`: Browser API client, CSRF protection, and scoped SSE subscriptions. Kitchen data is available only after staff sign-in; public order tracking only receives that order's status.
   - The database is created at `server/data/rasoi.sqlite` the first time the API starts and is excluded from Git.
 
 ---
@@ -26,13 +26,24 @@ A full, responsive cloud kitchen web application platform for **Rasoi Kitchen** 
 cd /Users/shweta/.gemini/antigravity/scratch/rasoi-kitchen
 ```
 
-### 2. Install dependencies and start the API and website:
+### 2. Configure the kitchen staff password
+
+Copy `.env.example` to `.env`, then generate a strong session secret and a bcrypt password hash:
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"
+node -e "require('bcryptjs').hash('choose-a-strong-staff-password', 12).then(console.log)"
+```
+
+Put the generated values in `.env` as `SESSION_SECRET` and `KITCHEN_PASSWORD_HASH`. Never commit `.env`; it is ignored by Git. The kitchen dashboard will reject sign-in until a password hash is configured. Change the example password text to a private password before generating its hash.
+
+### 3. Install dependencies and start the API and website:
 ```bash
 npm install
 npm run dev
 ```
 
-This starts the API on port `3001` and Vite on port `5173`. Both listen on your local network, so another device on the same Wi-Fi can open the Vite **Network** URL while this computer stays on and runs the app.
+This starts the API on port `3001` and Vite on port `5173`, bound to this computer only by default.
 
 ### 3. Open both views in your browser:
 
@@ -42,7 +53,7 @@ This starts the API on port `3001` and Vite on port `5173`. Both listen on your 
 
 - **Kitchen Staff Dashboard**:
   Visit `http://localhost:5173/?view=kitchen`
-  *(Inspect incoming orders, advance order statuses, manage dishes, track inventory, and toggle kitchen status).*
+*(Sign in with the configured staff password to inspect orders, advance statuses, manage dishes and inventory, and toggle kitchen status.)*
 
 - **API health check**: `http://localhost:3001/api/health`
 
@@ -61,14 +72,15 @@ Open `http://localhost:3001/`.
 
 - Orders are validated and priced from the server's current menu, then stored in SQLite.
 - Kitchen status, menu changes, and inventory changes are also saved in SQLite.
-- Server-sent events broadcast order, menu, inventory, and kitchen-status updates to connected browsers.
+- Kitchen order, menu, and inventory events require a staff session. Public order tracking exposes only the selected order's status, using a random tracking ID; customer phone, address, and delivery instructions stay private.
 - The database file is local to the computer running the server. Back up `server/data/rasoi.sqlite` to preserve data.
-- This is a learning/demo backend. Before exposing it to the public internet, add kitchen staff authentication, HTTPS, rate limiting, and managed database backups. Do not use real customer data until those protections are in place.
+- Staff authentication uses a bcrypt password hash, SQLite-backed 8-hour sessions, HttpOnly/SameSite cookies, CSRF tokens, and login throttling. The API also uses Helmet security headers, a content security policy, request-size limits, and API/order rate limits.
+- Before an internet deployment, configure HTTPS at the hosting edge, use a unique strong `SESSION_SECRET`, restrict the hosting firewall and trusted proxy configuration, set up monitored backups and restore procedures for SQLite, and review privacy/retention requirements. Do not expose the development Vite server publicly or commit `.env` or customer data.
 
 - **Switching Between Views**:
   Use the persistent top bar switcher:
   - `[ 🛒 Customer Site ]`
-  - `[ 👨‍🍳 Kitchen Dashboard ]` *(with live notification badge when new orders are placed)*
+  - `[ 👨‍🍳 Kitchen Dashboard ]` *(sign-in required)*
   - Or click the **Kitchen Staff** button in the Customer header.
 
 ---
@@ -117,7 +129,7 @@ Open `http://localhost:3001/`.
 3. **Menu Catalog**: Sample dishes including `item-1` "Paneer Roll" (₹120), category filter pills, real-time search, and veg-only filter.
 4. **Working Cart Drawer**: Slide-out drawer to change quantities, remove items, calculate free delivery above ₹300, and 5% GST.
 5. **Validated Checkout Modal**: Collects Name, Phone (10 digits), and Address with inline validation and simulated "Pay on Delivery".
-6. **Order Confirmation Screen**: Displays generated Order ID (e.g. `order-4821`) and initial status `Placed`.
+6. **Order Confirmation Screen**: Displays a cryptographically random tracking ID and initial status `Placed`.
 7. **Order Tracking**: Visual step progress tracker. Orders and status changes are stored by the API and broadcast to connected browsers.
 
 ---
@@ -126,7 +138,7 @@ Open `http://localhost:3001/`.
 
 ```json
 {
-  "id": "order-123",
+  "id": "order-<random-tracking-token>",
   "items": [
     {
       "menuItemId": "item-1",

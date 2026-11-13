@@ -1,9 +1,12 @@
 const API_BASE = import.meta.env?.VITE_API_BASE || '/api'
+let csrfToken = ''
 
 export async function apiRequest(path, options = {}) {
+  const method = (options.method || 'GET').toUpperCase()
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers },
+    credentials: 'same-origin',
+    headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(method !== 'GET' && csrfToken ? { 'X-CSRF-Token': csrfToken } : {}), ...options.headers },
   })
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
@@ -15,7 +18,7 @@ export async function apiRequest(path, options = {}) {
 
 export function subscribeToServerEvent(name, callback) {
   if (typeof window === 'undefined' || !window.EventSource) return () => {}
-  const source = new EventSource(`${API_BASE}/events`)
+  const source = new EventSource(`${API_BASE}/events?resource=${encodeURIComponent(name)}`, { withCredentials: true })
   const handle = (event) => {
     try { callback(JSON.parse(event.data)) } catch (error) { console.error(`Invalid ${name} event`, error) }
   }
@@ -25,5 +28,7 @@ export function subscribeToServerEvent(name, callback) {
   }
   return () => source.close()
 }
+
+export function setCsrfToken(token) { csrfToken = token || '' }
 
 export const jsonBody = (value) => JSON.stringify(value)

@@ -17,4 +17,11 @@ export const orderService = {
   },
   cancelOrder: (id) => apiRequest(`/orders/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: jsonBody({ status: ORDER_STATUS.CANCELLED }) }),
   subscribe: (callback) => subscribeToServerEvent('orders', callback),
+  subscribeToOrder: (id, callback) => {
+    if (!id || typeof window === 'undefined' || !window.EventSource) return () => {}
+    const source = new EventSource(`/api/orders/${encodeURIComponent(id)}/events`, { withCredentials: true })
+    const handle = (event) => { try { callback(JSON.parse(event.data)) } catch (error) { console.error('Invalid order status event', error) } }
+    source.addEventListener('orderStatus', handle)
+    return () => source.close()
+  },
 }
