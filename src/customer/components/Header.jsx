@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { ShoppingBag, Menu, X, Flame, Search, Clock, ArrowRight } from 'lucide-react'
+import { ShoppingBag, Menu, X, Flame, Search, Clock, ArrowRight, ChefHat } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 
-export default function Header({ onOpenTrackOrder }) {
+export default function Header({ onOpenTrackOrder, onSwitchToKitchen }) {
   const { totalItems, subtotal, setIsCartOpen } = useCart()
   const [isScrolled, setIsScrolled] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -96,6 +96,18 @@ export default function Header({ onOpenTrackOrder }) {
               Live Order Status
             </a>
 
+            {/* Kitchen Dashboard Switcher Button */}
+            {onSwitchToKitchen && (
+              <button
+                onClick={onSwitchToKitchen}
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-stone-700 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 rounded-full border border-stone-300 transition-colors"
+                title="Switch to Kitchen Staff Dashboard"
+              >
+                <ChefHat className="w-3.5 h-3.5 text-amber-600" />
+                <span>Kitchen Staff</span>
+              </button>
+            )}
+
             {/* Cart Button */}
             <button
               onClick={() => setIsCartOpen(true)}
@@ -169,6 +181,21 @@ export default function Header({ onOpenTrackOrder }) {
               >
                 About Our Cloud Kitchen
               </a>
+              {onSwitchToKitchen && (
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false)
+                    onSwitchToKitchen()
+                  }}
+                  className="w-full text-left px-3 py-2.5 rounded-lg text-amber-900 bg-amber-100/70 border border-amber-300 font-bold text-base flex items-center justify-between"
+                >
+                  <span className="flex items-center gap-2">
+                    <ChefHat className="w-5 h-5 text-amber-700" />
+                    Kitchen Staff Dashboard
+                  </span>
+                  <ArrowRight className="w-4 h-4 text-amber-700" />
+                </button>
+              )}
             </div>
           </div>
         )}

@@ -10,7 +10,7 @@ import CartDrawer from './components/CartDrawer'
 import CheckoutModal from './components/CheckoutModal'
 import OrderConfirmation from './components/OrderConfirmation'
 
-function CustomerAppContent() {
+function CustomerAppContent({ onSwitchToKitchen }) {
   const [activeOrderIdToTrack, setActiveOrderIdToTrack] = useState('order-123')
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
   const [confirmedOrder, setConfirmedOrder] = useState(null)
@@ -44,7 +44,10 @@ function CustomerAppContent() {
   return (
     <div className="min-h-screen flex flex-col bg-amber-50/30 selection:bg-amber-500 selection:text-white">
       {/* 1. Brand Header */}
-      <Header onOpenTrackOrder={handleOpenTrackOrder} />
+      <Header
+        onOpenTrackOrder={handleOpenTrackOrder}
+        onSwitchToKitchen={onSwitchToKitchen}
+      />
 
       {/* Main Content Area */}
       <main className="flex-1">
@@ -84,10 +87,10 @@ function CustomerAppContent() {
   )
 }
 
-export default function CustomerApp() {
+export default function CustomerApp({ onSwitchToKitchen }) {
   return (
     <CartProvider>
-      <CustomerAppContent />
+      <CustomerAppContent onSwitchToKitchen={onSwitchToKitchen} />
     </CartProvider>
   )
 }
