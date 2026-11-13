@@ -6,23 +6,18 @@ import {
   ChefHat,
   PackageCheck,
   Bike,
-  Sparkles,
   AlertCircle,
   XCircle,
-  ArrowRight,
   RefreshCw,
-  SlidersHorizontal,
 } from 'lucide-react'
 import { orderService } from '../services/orderService'
 import { ORDER_STATUS, STATUS_DETAILS } from '../constants/orderStatus'
 
 export default function OrderTracking({ initialOrderId }) {
-  const [orderIdInput, setOrderIdInput] = useState(initialOrderId || 'order-123')
+  const [orderIdInput, setOrderIdInput] = useState(initialOrderId || '')
   const [currentOrder, setCurrentOrder] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [recentOrders, setRecentOrders] = useState([])
-  const [simulationMsg, setSimulationMsg] = useState('')
 
   // Load orders list and default order
   const loadOrder = async (idToLoad) => {
@@ -44,69 +39,24 @@ export default function OrderTracking({ initialOrderId }) {
     }
   }
 
-  // Sync when initialOrderId prop changes
   useEffect(() => {
     if (initialOrderId) {
       setOrderIdInput(initialOrderId)
       loadOrder(initialOrderId)
-    } else {
-      loadOrder(orderIdInput)
     }
   }, [initialOrderId])
 
-  // Subscribe to live order updates from orderService
   useEffect(() => {
-    const fetchRecent = async () => {
-      const all = await orderService.getOrders()
-      setRecentOrders(all.slice(0, 5))
-    }
-    fetchRecent()
-
-    const unsubscribe = orderService.subscribe((allOrders) => {
-      setRecentOrders(allOrders.slice(0, 5))
-      if (currentOrder) {
-        const updated = allOrders.find(
-          (o) => o.id.toLowerCase() === currentOrder.id.toLowerCase()
-        )
-        if (updated) setCurrentOrder(updated)
-      }
+    if (!currentOrder?.id) return undefined
+    return orderService.subscribeToOrder(currentOrder.id, (statusUpdate) => {
+      setCurrentOrder((order) => order?.id === statusUpdate.id ? { ...order, status: statusUpdate.status, updatedAt: statusUpdate.updatedAt } : order)
     })
-
-    return () => unsubscribe()
   }, [currentOrder?.id])
 
   const handleSearch = (e) => {
     e.preventDefault()
     if (orderIdInput.trim()) {
       loadOrder(orderIdInput.trim())
-    }
-  }
-
-  // Simulator helper: Advance order status
-  const handleAdvanceStatus = async () => {
-    if (!currentOrder) return
-    try {
-      const updated = await orderService.advanceNextStatus(currentOrder.id)
-      if (updated) {
-        setCurrentOrder(updated)
-        setSimulationMsg(`Status advanced to "${updated.status}"`)
-        setTimeout(() => setSimulationMsg(''), 3000)
-      }
-    } catch (err) {
-      console.error(err)
-    }
-  }
-
-  // Simulator helper: Set custom status
-  const handleSetStatus = async (newStatus) => {
-    if (!currentOrder) return
-    try {
-      const updated = await orderService.updateOrderStatus(currentOrder.id, newStatus)
-      setCurrentOrder(updated)
-      setSimulationMsg(`Status set to "${newStatus}"`)
-      setTimeout(() => setSimulationMsg(''), 3000)
-    } catch (err) {
-      console.error(err)
     }
   }
 
@@ -180,7 +130,7 @@ export default function OrderTracking({ initialOrderId }) {
                 type="text"
                 value={orderIdInput}
                 onChange={(e) => setOrderIdInput(e.target.value)}
-                placeholder="Enter Order ID (e.g. order-123)"
+                placeholder="Enter the order ID from your confirmation"
                 className="w-full pl-10 pr-4 py-3 rounded-2xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
                 aria-label="Order ID to track"
               />
@@ -204,29 +154,6 @@ export default function OrderTracking({ initialOrderId }) {
             </button>
           </form>
 
-          {/* Quick Select Recent Orders */}
-          {recentOrders.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-stone-100 flex flex-wrap items-center gap-2 text-xs text-stone-500">
-              <span className="font-semibold text-stone-700">Quick Test Orders:</span>
-              {recentOrders.map((ro) => (
-                <button
-                  key={ro.id}
-                  type="button"
-                  onClick={() => {
-                    setOrderIdInput(ro.id)
-                    loadOrder(ro.id)
-                  }}
-                  className={`px-2.5 py-1 rounded-lg border font-mono transition-colors ${
-                    currentOrder?.id === ro.id
-                      ? 'bg-amber-100 border-amber-300 text-amber-900 font-bold'
-                      : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-stone-100'
-                  }`}
-                >
-                  {ro.id} ({ro.status})
-                </button>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* Error State */}
@@ -236,15 +163,6 @@ export default function OrderTracking({ initialOrderId }) {
             <div>
               <p className="font-bold text-sm">Order Not Found</p>
               <p className="text-xs text-rose-700 mt-1">{error}</p>
-              <button
-                onClick={() => {
-                  setOrderIdInput('order-123')
-                  loadOrder('order-123')
-                }}
-                className="mt-2 text-xs font-bold text-rose-800 underline hover:text-rose-900"
-              >
-                Try sample order "order-123"
-              </button>
             </div>
           </div>
         )}
@@ -388,82 +306,10 @@ export default function OrderTracking({ initialOrderId }) {
                 </div>
               </div>
 
-              {/* Delivery Destination */}
+              {/* Private delivery details are available only to signed-in kitchen staff. */}
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-3">
-                  Delivery Destination
-                </h4>
-                {currentOrder.customer ? (
-                  <div className="p-4 rounded-2xl border border-stone-200 bg-stone-50/30 space-y-2 text-xs text-stone-600">
-                    <p className="text-stone-900 font-bold text-sm">{currentOrder.customer.name}</p>
-                    <p className="text-stone-600">+91 {currentOrder.customer.phone}</p>
-                    <p className="text-stone-600 leading-relaxed">{currentOrder.customer.address}</p>
-                    {currentOrder.customer.instructions && (
-                      <p className="text-stone-500 italic pt-1 border-t border-stone-100">
-                        Note: "{currentOrder.customer.instructions}"
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-xs text-stone-500">Standard counter pickup / guest order.</p>
-                )}
-              </div>
-            </div>
-
-            {/* Interactive Kitchen Simulator Controls (For testing all statuses easily) */}
-            <div className="p-4 sm:p-6 bg-amber-50/60 border-t border-amber-200/80">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-900">
-                    <SlidersHorizontal className="w-3.5 h-3.5 text-amber-700" />
-                    <span>Kitchen Simulation Controls</span>
-                  </div>
-                  <p className="text-xs text-stone-600 mt-0.5">
-                    Test how this customer screen reacts as the kitchen advances order states.
-                  </p>
-                  {simulationMsg && (
-                    <span className="inline-block mt-1 text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                      ✓ {simulationMsg}
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* Advance to next */}
-                  {!isCancelled && currentOrder.status !== ORDER_STATUS.COMPLETED && (
-                    <button
-                      onClick={handleAdvanceStatus}
-                      className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs shadow-sm transition-all"
-                    >
-                      Next Status →
-                    </button>
-                  )}
-
-                  {/* Quick status dropdown */}
-                  <select
-                    value={currentOrder.status}
-                    onChange={(e) => handleSetStatus(e.target.value)}
-                    className="px-3 py-2 rounded-xl border border-stone-300 bg-white text-stone-800 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    aria-label="Set order status"
-                  >
-                    <option value={ORDER_STATUS.PLACED}>Status: Placed</option>
-                    <option value={ORDER_STATUS.ACCEPTED}>Status: Accepted</option>
-                    <option value={ORDER_STATUS.PREPARING}>Status: Preparing</option>
-                    <option value={ORDER_STATUS.READY}>Status: Ready</option>
-                    <option value={ORDER_STATUS.COMPLETED}>Status: Completed</option>
-                    <option value={ORDER_STATUS.CANCELLED}>Status: Cancelled</option>
-                  </select>
-
-                  {/* Cancel button if placed */}
-                  {currentOrder.status === ORDER_STATUS.PLACED && (
-                    <button
-                      onClick={() => handleSetStatus(ORDER_STATUS.CANCELLED)}
-                      className="px-3 py-2 rounded-xl bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 font-semibold text-xs transition-colors"
-                    >
-                      Cancel Order
-                    </button>
-                  )}
-                </div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-3">Delivery</h4>
+                <p className="p-4 rounded-2xl border border-stone-200 bg-stone-50/30 text-xs text-stone-600">Your delivery details are kept private. The kitchen will contact you if they need anything.</p>
               </div>
             </div>
           </div>

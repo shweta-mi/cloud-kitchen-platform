@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Flame, Clock, ExternalLink, ChefHat, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Clock, ExternalLink, ChefHat, LogOut } from 'lucide-react'
 import { KITCHEN_STATUS, KITCHEN_STATUS_CONFIG } from '../constants/kitchenStatus'
 
 export default function KitchenHeader({
@@ -8,6 +8,7 @@ export default function KitchenHeader({
   activeCount = 0,
   newOrdersCount = 0,
   onSwitchToCustomer,
+  onLogout,
 }) {
   const [time, setTime] = useState(new Date())
 
@@ -99,6 +100,10 @@ export default function KitchenHeader({
             >
               <span>Customer Site</span>
               <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+            <button type="button" onClick={onLogout} className="flex items-center gap-2 rounded-xl border border-stone-700 px-3.5 py-2 text-xs font-semibold text-stone-300 transition-colors hover:bg-stone-800 hover:text-white" title="Sign out of kitchen dashboard">
+              <LogOut className="h-3.5 w-3.5" />
+              <span>Sign out</span>
             </button>
           </div>
         </div>

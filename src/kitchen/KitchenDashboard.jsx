@@ -17,21 +17,24 @@ import OrderQueueTab from './components/OrderQueueTab'
 import MenuManagementTab from './components/MenuManagementTab'
 import InventoryTab from './components/InventoryTab'
 import ConfirmationModal from './components/ConfirmationModal'
+import KitchenLogin from './components/KitchenLogin'
+import { authService } from './services/authService'
 
 import { orderService } from '../customer/services/orderService'
 import { menuService } from '../customer/services/menuService'
 import { kitchenService } from './services/kitchenService'
 import { inventoryService } from './services/inventoryService'
 import { ORDER_STATUS } from '../customer/constants/orderStatus'
+import { KITCHEN_STATUS } from './constants/kitchenStatus'
 
-export default function KitchenDashboard({ onSwitchToCustomer }) {
+function KitchenDashboardContent({ onSwitchToCustomer, onLogout }) {
   const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'orders' | 'menu' | 'inventory'
 
   // Live state
   const [orders, setOrders] = useState([])
-  const [kitchenStatus, setKitchenStatus] = useState(kitchenService.getStatus())
-  const [menuItems, setMenuItems] = useState(menuService.getMenuItems())
-  const [inventory, setInventory] = useState(inventoryService.getInventory())
+  const [kitchenStatus, setKitchenStatus] = useState(KITCHEN_STATUS.OPEN)
+  const [menuItems, setMenuItems] = useState([])
+  const [inventory, setInventory] = useState([])
 
   // Toast / Status notification
   const [toastMessage, setToastMessage] = useState('')
@@ -50,6 +53,9 @@ export default function KitchenDashboard({ onSwitchToCustomer }) {
   useEffect(() => {
     // Orders
     orderService.getOrders().then(setOrders)
+    kitchenService.getStatus().then(setKitchenStatus)
+    menuService.getMenuItems().then(setMenuItems)
+    inventoryService.getInventory().then(setInventory)
     const unsubOrders = orderService.subscribe((updatedOrders) => {
       setOrders(updatedOrders)
     })
@@ -111,56 +117,60 @@ export default function KitchenDashboard({ onSwitchToCustomer }) {
   }
 
   // Handlers for Kitchen Status
-  const handleKitchenStatusChange = (newStatus) => {
-    kitchenService.setStatus(newStatus)
-    showToast(`Kitchen status updated to "${newStatus}"`)
+  const handleKitchenStatusChange = async (newStatus) => {
+    try {
+      await kitchenService.setStatus(newStatus)
+      showToast(`Kitchen status updated to "${newStatus}"`)
+    } catch (err) { console.error(err); showToast('Could not update kitchen status') }
   }
 
   // Handlers for Menu
-  const handleToggleMenuAvailability = (id) => {
-    const item = menuService.toggleAvailability(id)
-    if (item) {
+  const handleToggleMenuAvailability = async (id) => {
+    try {
+      const item = await menuService.toggleAvailability(id)
+      if (item) {
       showToast(`"${item.name}" marked as ${item.isAvailable ? 'In Stock' : 'Sold Out'}`)
-    }
+      }
+    } catch (err) { console.error(err); showToast('Could not update menu availability') }
   }
 
-  const handleAddDish = (dish) => {
-    const created = menuService.addMenuItem(dish)
-    showToast(`Dish "${created.name}" added to menu catalog`)
+  const handleAddDish = async (dish) => {
+    try { const created = await menuService.addMenuItem(dish); showToast(`Dish "${created.name}" added to menu catalog`) }
+    catch (err) { console.error(err); showToast('Could not add dish') }
   }
 
-  const handleUpdateDish = (id, updates) => {
-    const updated = menuService.updateMenuItem(id, updates)
-    showToast(`Dish "${updated.name}" updated successfully`)
+  const handleUpdateDish = async (id, updates) => {
+    try { const updated = await menuService.updateMenuItem(id, updates); showToast(`Dish "${updated.name}" updated successfully`) }
+    catch (err) { console.error(err); showToast('Could not update dish') }
   }
 
-  const handleConfirmDeleteDish = () => {
+  const handleConfirmDeleteDish = async () => {
     if (!deleteDishTarget) return
-    menuService.deleteMenuItem(deleteDishTarget.id)
-    showToast(`Dish "${deleteDishTarget.name}" deleted from menu`)
-    setDeleteDishTarget(null)
+    try { await menuService.deleteMenuItem(deleteDishTarget.id); showToast(`Dish "${deleteDishTarget.name}" deleted from menu`) }
+    catch (err) { console.error(err); showToast('Could not delete dish') }
+    finally { setDeleteDishTarget(null) }
   }
 
   // Handlers for Inventory
-  const handleAdjustInventory = (id, delta) => {
-    inventoryService.adjustQuantity(id, delta)
+  const handleAdjustInventory = async (id, delta) => {
+    try { await inventoryService.adjustQuantity(id, delta) } catch (err) { console.error(err); showToast('Could not update inventory') }
   }
 
-  const handleUpdateInventoryQty = (id, qty) => {
-    inventoryService.updateQuantity(id, qty)
-    showToast('Inventory quantity updated')
+  const handleUpdateInventoryQty = async (id, qty) => {
+    try { await inventoryService.updateQuantity(id, qty); showToast('Inventory quantity updated') }
+    catch (err) { console.error(err); showToast('Could not update inventory') }
   }
 
-  const handleAddInventory = (item) => {
-    const created = inventoryService.addItem(item)
-    showToast(`Item "${created.name}" added to inventory`)
+  const handleAddInventory = async (item) => {
+    try { const created = await inventoryService.addItem(item); showToast(`Item "${created.name}" added to inventory`) }
+    catch (err) { console.error(err); showToast('Could not add inventory item') }
   }
 
-  const handleConfirmDeleteInventory = () => {
+  const handleConfirmDeleteInventory = async () => {
     if (!deleteInventoryTarget) return
-    inventoryService.deleteItem(deleteInventoryTarget.id)
-    showToast(`Item "${deleteInventoryTarget.name}" removed from inventory`)
-    setDeleteInventoryTarget(null)
+    try { await inventoryService.deleteItem(deleteInventoryTarget.id); showToast(`Item "${deleteInventoryTarget.name}" removed from inventory`) }
+    catch (err) { console.error(err); showToast('Could not delete inventory item') }
+    finally { setDeleteInventoryTarget(null) }
   }
 
   // Badges & Counters
@@ -179,6 +189,7 @@ export default function KitchenDashboard({ onSwitchToCustomer }) {
         activeCount={activeOrdersCount}
         newOrdersCount={newOrdersCount}
         onSwitchToCustomer={onSwitchToCustomer}
+        onLogout={onLogout}
       />
 
       {/* Floating Action Toast Notification */}
@@ -359,4 +370,28 @@ export default function KitchenDashboard({ onSwitchToCustomer }) {
       />
     </div>
   )
+}
+
+export default function KitchenDashboard({ onSwitchToCustomer }) {
+  const [authState, setAuthState] = useState('loading')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    authService.getSession()
+      .then(({ authenticated }) => setAuthState(authenticated ? 'authenticated' : 'anonymous'))
+      .catch((err) => { setError(err.message); setAuthState('anonymous') })
+  }, [])
+
+  const login = async (password) => {
+    await authService.login(password)
+    setAuthState('authenticated')
+  }
+  const logout = async () => {
+    await authService.logout()
+    setAuthState('anonymous')
+  }
+
+  if (authState === 'loading') return <main className="min-h-[70vh] grid place-items-center text-stone-600">Checking staff session…</main>
+  if (authState !== 'authenticated') return <><KitchenLogin onLogin={login} />{error && <p className="pb-6 text-center text-sm text-rose-700">{error}</p>}</>
+  return <KitchenDashboardContent onSwitchToCustomer={onSwitchToCustomer} onLogout={logout} />
 }

@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import CustomerApp from './customer/CustomerApp'
 import KitchenDashboard from './kitchen/KitchenDashboard'
-import { orderService } from './customer/services/orderService'
 import { kitchenService } from './kitchen/services/kitchenService'
-import { ORDER_STATUS } from './customer/constants/orderStatus'
 import { KITCHEN_STATUS, KITCHEN_STATUS_CONFIG } from './kitchen/constants/kitchenStatus'
 import { ChefHat, ShoppingBag, ArrowRightLeft, Sparkles } from 'lucide-react'
 
@@ -20,8 +18,7 @@ export default function App() {
   }
 
   const [currentView, setCurrentView] = useState(getInitialView)
-  const [newOrdersCount, setNewOrdersCount] = useState(0)
-  const [kitchenStatus, setKitchenStatus] = useState(kitchenService.getStatus())
+  const [kitchenStatus, setKitchenStatus] = useState(KITCHEN_STATUS.OPEN)
 
   // Keep URL in sync without full reload
   const setView = (view) => {
@@ -48,19 +45,11 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
-  // Subscribe to live orders count for notification badge
   useEffect(() => {
-    const updateCounts = (ordersList) => {
-      const count = ordersList.filter((o) => o.status === ORDER_STATUS.PLACED).length
-      setNewOrdersCount(count)
-    }
-
-    orderService.getOrders().then(updateCounts)
-    const unsubOrders = orderService.subscribe(updateCounts)
     const unsubStatus = kitchenService.subscribe(setKitchenStatus)
+    kitchenService.getStatus().then(setKitchenStatus).catch((err) => console.error('Could not load kitchen status', err))
 
     return () => {
-      unsubOrders()
       unsubStatus()
     }
   }, [])
@@ -112,14 +101,6 @@ export default function App() {
               >
                 <ChefHat className="w-3.5 h-3.5" />
                 <span>Kitchen Dashboard</span>
-                {newOrdersCount > 0 && (
-                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping absolute -top-0.5 -right-0.5" />
-                )}
-                {newOrdersCount > 0 && (
-                  <span className="ml-1 text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-rose-600 text-white">
-                    {newOrdersCount}
-                  </span>
-                )}
               </button>
             </div>
           </div>
