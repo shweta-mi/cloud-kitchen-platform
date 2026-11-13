@@ -2,7 +2,7 @@
  * Kitchen Inventory Service for Rasoi Kitchen Platform.
  * 
  * Manages raw ingredients, packaging, and supply stock levels with low-stock alerts.
- * Uses localStorage persistence and custom events for real-time reactivity across tabs.
+ * Reads and writes persisted inventory through the API and listens for server updates.
  */
 
 import { apiRequest, jsonBody, subscribeToServerEvent } from '../../shared/api.js'
