@@ -2,12 +2,22 @@ import React, { useState, useMemo, useEffect } from 'react'
 import { Search, Filter, RotateCcw, UtensilsCrossed, Sparkles } from 'lucide-react'
 import MenuItemCard from './MenuItemCard'
 import { MENU_ITEMS, CATEGORIES } from '../data/menuData'
+import { menuService } from '../services/menuService'
 
 export default function MenuSection() {
+  const [menuItems, setMenuItems] = useState(() => menuService.getMenuItems() || MENU_ITEMS)
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [searchQuery, setSearchQuery] = useState('')
   const [vegOnly, setVegOnly] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+
+  // Subscribe to live menu updates from Kitchen Dashboard
+  useEffect(() => {
+    const unsubscribe = menuService.subscribe((updatedItems) => {
+      setMenuItems(updatedItems)
+    })
+    return () => unsubscribe()
+  }, [])
 
   // Simulate sensible initial loading state
   useEffect(() => {
@@ -19,7 +29,7 @@ export default function MenuSection() {
 
   // Filtered dishes
   const filteredDishes = useMemo(() => {
-    return MENU_ITEMS.filter((dish) => {
+    return menuItems.filter((dish) => {
       // Category match
       const matchesCategory =
         selectedCategory === 'All' || dish.category === selectedCategory
@@ -37,7 +47,7 @@ export default function MenuSection() {
 
       return matchesCategory && matchesSearch && matchesVeg
     })
-  }, [selectedCategory, searchQuery, vegOnly])
+  }, [menuItems, selectedCategory, searchQuery, vegOnly])
 
   const handleResetFilters = () => {
     setSelectedCategory('All')
@@ -122,8 +132,8 @@ export default function MenuSection() {
               const isActive = selectedCategory === cat
               const count =
                 cat === 'All'
-                  ? MENU_ITEMS.length
-                  : MENU_ITEMS.filter((i) => i.category === cat).length
+                  ? menuItems.length
+                  : menuItems.filter((i) => i.category === cat).length
 
               return (
                 <button
