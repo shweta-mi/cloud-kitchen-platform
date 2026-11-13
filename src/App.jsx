@@ -21,7 +21,7 @@ export default function App() {
 
   const [currentView, setCurrentView] = useState(getInitialView)
   const [newOrdersCount, setNewOrdersCount] = useState(0)
-  const [kitchenStatus, setKitchenStatus] = useState(kitchenService.getStatus())
+  const [kitchenStatus, setKitchenStatus] = useState(KITCHEN_STATUS.OPEN)
 
   // Keep URL in sync without full reload
   const setView = (view) => {
@@ -58,6 +58,7 @@ export default function App() {
     orderService.getOrders().then(updateCounts)
     const unsubOrders = orderService.subscribe(updateCounts)
     const unsubStatus = kitchenService.subscribe(setKitchenStatus)
+    kitchenService.getStatus().then(setKitchenStatus).catch((err) => console.error('Could not load kitchen status', err))
 
     return () => {
       unsubOrders()

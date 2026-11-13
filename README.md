@@ -11,11 +11,11 @@ A full, responsive cloud kitchen web application platform for **Rasoi Kitchen** 
 - **Organization**:
   - `src/customer/`: Customer-facing food ordering application (menu, cart, checkout, order tracking)
   - `src/kitchen/`: Kitchen staff operations dashboard (overview, order queue, menu catalog, inventory, kitchen status)
+- **Backend**: Node.js 22.5+ with Express 5, SQLite (`node:sqlite`), REST endpoints, and server-sent events (SSE).
 - **Shared Data & Contract**:
-  - `orderService.js`: Shared order store and pub/sub broadcaster. Any status change in the Kitchen Dashboard instantly updates Customer Order Tracking in the same browser and across tabs.
-  - `menuService.js`: Shared live dish catalog. Toggling availability (e.g. marking Sold Out) in the Kitchen Dashboard updates the Customer menu cards immediately.
-  - `kitchenService.js`: Manages kitchen operational status (`Open`, `Busy`, `Closed`).
-  - `inventoryService.js`: Tracks raw material stock levels with low-stock alerts.
+  - `server/index.js`: REST API and SQLite persistence for orders, menu, kitchen status, and inventory.
+  - `src/shared/api.js`: Browser API client and SSE subscriptions. Updates are broadcast to every connected browser.
+  - The database is created at `server/data/rasoi.sqlite` the first time the API starts and is excluded from Git.
 
 ---
 
@@ -26,20 +26,44 @@ A full, responsive cloud kitchen web application platform for **Rasoi Kitchen** 
 cd /Users/shweta/.gemini/antigravity/scratch/rasoi-kitchen
 ```
 
-### 2. Start the development server:
+### 2. Install dependencies and start the API and website:
 ```bash
+npm install
 npm run dev
 ```
+
+This starts the API on port `3001` and Vite on port `5173`. Both listen on your local network, so another device on the same Wi-Fi can open the Vite **Network** URL while this computer stays on and runs the app.
 
 ### 3. Open both views in your browser:
 
 - **Customer Website**:
   Visit `http://localhost:5173/` or `http://localhost:5173/?view=customer`
-  *(Browse menu, add items to cart, checkout with mock orders, and track your order).*
+  *(Browse menu, add items to cart, place a simulated pay-on-delivery order, and track it).*
 
 - **Kitchen Staff Dashboard**:
   Visit `http://localhost:5173/?view=kitchen`
   *(Inspect incoming orders, advance order statuses, manage dishes, track inventory, and toggle kitchen status).*
+
+- **API health check**: `http://localhost:3001/api/health`
+
+### Production-style local run
+
+Build the website, then start the Express server. It serves both the API and built website from one origin:
+
+```bash
+npm run build
+npm start
+```
+
+Open `http://localhost:3001/`.
+
+### Data and real-time updates
+
+- Orders are validated and priced from the server's current menu, then stored in SQLite.
+- Kitchen status, menu changes, and inventory changes are also saved in SQLite.
+- Server-sent events broadcast order, menu, inventory, and kitchen-status updates to connected browsers.
+- The database file is local to the computer running the server. Back up `server/data/rasoi.sqlite` to preserve data.
+- This is a learning/demo backend. Before exposing it to the public internet, add kitchen staff authentication, HTTPS, rate limiting, and managed database backups. Do not use real customer data until those protections are in place.
 
 - **Switching Between Views**:
   Use the persistent top bar switcher:
@@ -94,7 +118,7 @@ npm run dev
 4. **Working Cart Drawer**: Slide-out drawer to change quantities, remove items, calculate free delivery above ₹300, and 5% GST.
 5. **Validated Checkout Modal**: Collects Name, Phone (10 digits), and Address with inline validation and simulated "Pay on Delivery".
 6. **Order Confirmation Screen**: Displays generated Order ID (e.g. `order-4821`) and initial status `Placed`.
-7. **Order Tracking**: Visual step progress tracker. Searching or placing an order reflects kitchen updates live in the same browser.
+7. **Order Tracking**: Visual step progress tracker. Orders and status changes are stored by the API and broadcast to connected browsers.
 
 ---
 

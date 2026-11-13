@@ -5,8 +5,7 @@
  * Uses localStorage persistence and custom events for real-time reactivity across tabs.
  */
 
-const STORAGE_KEY = 'rasoi_kitchen_inventory_v1'
-const EVENT_NAME = 'rasoi_kitchen_inventory_event'
+import { apiRequest, jsonBody, subscribeToServerEvent } from '../../shared/api.js'
 
 export const INITIAL_INVENTORY = [
   {
@@ -111,117 +110,22 @@ export const INITIAL_INVENTORY = [
   },
 ]
 
-function getStoredInventory() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_INVENTORY))
-      return INITIAL_INVENTORY
-    }
-    return JSON.parse(raw)
-  } catch (err) {
-    console.warn('Could not read inventory from localStorage', err)
-    return INITIAL_INVENTORY
-  }
-}
-
-function saveStoredInventory(items) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
-  } catch (err) {
-    console.warn('Could not save inventory to localStorage', err)
-  }
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: items }))
-  }
-}
-
 export const inventoryService = {
-  getInventory() {
-    return getStoredInventory()
-  },
-
-  updateQuantity(id, newQuantity) {
-    const items = getStoredInventory()
-    const index = items.findIndex((i) => i.id === id)
-    if (index === -1) return null
-
-    const validQty = Math.max(0, Number(newQuantity))
-    items[index] = {
-      ...items[index],
-      quantity: Number(validQty.toFixed(1)),
-      updatedAt: new Date().toISOString(),
-    }
-    saveStoredInventory(items)
-    return items[index]
-  },
-
-  adjustQuantity(id, delta) {
-    const items = getStoredInventory()
-    const item = items.find((i) => i.id === id)
+  getInventory: () => apiRequest('/inventory'),
+  async updateQuantity(id, newQuantity) {
+    const inventory = await this.getInventory()
+    const item = inventory.find((entry) => entry.id === id)
     if (!item) return null
-    return this.updateQuantity(id, item.quantity + delta)
+    const quantity = Number(Math.max(0, Number(newQuantity)).toFixed(1))
+    return apiRequest(`/inventory/${encodeURIComponent(id)}`, { method: 'PUT', body: jsonBody({ quantity }) })
   },
-
-  addItem(newItem) {
-    const items = getStoredInventory()
-    const item = {
-      id: `inv-${Date.now().toString().slice(-4)}`,
-      name: newItem.name.trim(),
-      category: newItem.category || 'General',
-      quantity: Number(newItem.quantity) || 0,
-      unit: newItem.unit || 'units',
-      minThreshold: Number(newItem.minThreshold) || 5,
-      lastRestocked: new Date().toISOString().split('T')[0],
-      costPerUnit: Number(newItem.costPerUnit) || 0,
-    }
-    const updated = [item, ...items]
-    saveStoredInventory(updated)
-    return item
+  adjustQuantity: (id, delta) => apiRequest(`/inventory/${encodeURIComponent(id)}/adjust`, { method: 'POST', body: jsonBody({ delta }) }),
+  addItem: (item) => apiRequest('/inventory', { method: 'POST', body: jsonBody(item) }),
+  updateItem: (id, updates) => apiRequest(`/inventory/${encodeURIComponent(id)}`, { method: 'PUT', body: jsonBody(updates) }),
+  deleteItem: (id) => apiRequest(`/inventory/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  async getLowStockCount() {
+    const items = await this.getInventory()
+    return items.filter((item) => item.quantity <= item.minThreshold).length
   },
-
-  updateItem(id, updates) {
-    const items = getStoredInventory()
-    const index = items.findIndex((i) => i.id === id)
-    if (index === -1) return null
-
-    items[index] = {
-      ...items[index],
-      ...updates,
-      updatedAt: new Date().toISOString(),
-    }
-    saveStoredInventory(items)
-    return items[index]
-  },
-
-  deleteItem(id) {
-    const items = getStoredInventory()
-    const filtered = items.filter((i) => i.id !== id)
-    saveStoredInventory(filtered)
-    return true
-  },
-
-  getLowStockCount() {
-    const items = getStoredInventory()
-    return items.filter((i) => i.quantity <= i.minThreshold).length
-  },
-
-  subscribe(callback) {
-    if (typeof window === 'undefined') return () => {}
-
-    const handleCustomEvent = (e) => callback(e.detail)
-    const handleStorageEvent = (e) => {
-      if (e.key === STORAGE_KEY) {
-        callback(getStoredInventory())
-      }
-    }
-
-    window.addEventListener(EVENT_NAME, handleCustomEvent)
-    window.addEventListener('storage', handleStorageEvent)
-
-    return () => {
-      window.removeEventListener(EVENT_NAME, handleCustomEvent)
-      window.removeEventListener('storage', handleStorageEvent)
-    }
-  },
+  subscribe: (callback) => subscribeToServerEvent('inventory', callback),
 }

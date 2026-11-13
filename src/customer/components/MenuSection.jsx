@@ -5,7 +5,7 @@ import { MENU_ITEMS, CATEGORIES } from '../data/menuData'
 import { menuService } from '../services/menuService'
 
 export default function MenuSection() {
-  const [menuItems, setMenuItems] = useState(() => menuService.getMenuItems() || MENU_ITEMS)
+  const [menuItems, setMenuItems] = useState(MENU_ITEMS)
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [searchQuery, setSearchQuery] = useState('')
   const [vegOnly, setVegOnly] = useState(false)
@@ -16,6 +16,7 @@ export default function MenuSection() {
     const unsubscribe = menuService.subscribe((updatedItems) => {
       setMenuItems(updatedItems)
     })
+    menuService.getMenuItems().then(setMenuItems).catch((err) => console.error('Could not load menu', err))
     return () => unsubscribe()
   }, [])
 
